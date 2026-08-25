@@ -52,6 +52,14 @@ Future synchronization must include a documented conflict-resolution strategy fo
 4. Add notes, statistics, archive/resurrection, challenges, and backup/restore flows.
 5. Test on physical iPhones, then prepare TestFlight and App Store releases.
 
+## Development
+
+Open `iHabitTracker.xcodeproj` in Xcode 16 or later. The project targets iOS 17 and resolves [GRDB.swift](https://github.com/groue/GRDB.swift) through Swift Package Manager for direct SQLite access.
+
+The first implemented milestone contains the four native tabs (`Today`, `Calendar`, `Stats`, and `More`), direct Pending/Done/Missed status controls, notes, streak statistics, unresolved-date review, and validated whole-database import from Files. Import always creates a safety copy of the current iPhone database before replacement; it never merges records.
+
+Accurate recurring notifications while the app has not been opened require future synchronization and server-backed push notifications. Until then, unresolved dates are shown accurately inside the app.
+
 ## License
 
 This project is released under the [MIT License](LICENSE), consistent with the terminal-habit-tracker project.
