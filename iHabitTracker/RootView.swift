@@ -28,7 +28,6 @@ struct RootView: View {
     private var activeTab: some View {
         switch selectedTab {
         case .today: TodayView()
-        case .calendar: CalendarView()
         case .statistics: StatisticsView()
         case .more: MoreView()
         }
@@ -36,14 +35,14 @@ struct RootView: View {
 }
 
 private enum AppTab: CaseIterable, Identifiable {
-    case today, calendar, statistics, more
+    case today, statistics, more
 
     var id: Self { self }
     var title: String {
-        switch self { case .today: "Today"; case .calendar: "Calendar"; case .statistics: "Stats"; case .more: "More" }
+        switch self { case .today: "Today"; case .statistics: "Stats"; case .more: "More" }
     }
     var symbol: String {
-        switch self { case .today: "checkmark.circle.fill"; case .calendar: "calendar"; case .statistics: "chart.line.uptrend.xyaxis"; case .more: "ellipsis.circle" }
+        switch self { case .today: "checkmark.circle.fill"; case .statistics: "chart.line.uptrend.xyaxis"; case .more: "ellipsis.circle" }
     }
 }
 
@@ -69,13 +68,13 @@ private struct AppTabBarItem: View {
         Button(action: action) {
             VStack(spacing: 3) {
                 Image(systemName: tab.symbol)
-                    .font(.title3)
+                    .font(.system(size: 27, weight: .medium))
                 Text(tab.title)
                     .font(.caption)
             }
             .fontWeight(isSelected ? .semibold : .regular)
             .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-            .frame(maxWidth: .infinity, minHeight: 52)
+            .frame(maxWidth: .infinity, minHeight: 62)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -86,15 +85,17 @@ private struct AppTabBarItem: View {
 private struct TodayView: View {
     @EnvironmentObject private var state: AppState
     @State private var showingAddHabit = false
+    @State private var showingCalendar = false
     @State private var noteHabit: Habit?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Today")
-                .font(.largeTitle.bold())
-            Text(state.selectedDate.formatted(date: .complete, time: .omitted))
-                .font(.title3)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 16) {
+            DayNavigationHeader(
+                title: dayTitle,
+                previousDay: { selectDay(offset: -1) },
+                nextDay: { selectDay(offset: 1) },
+                showCalendar: { showingCalendar = true }
+            )
 
             HStack {
                 Spacer()
@@ -128,7 +129,67 @@ private struct TodayView: View {
         .padding(.top, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .sheet(isPresented: $showingAddHabit) { AddHabitSheet(defaultDate: state.selectedDate) { state.createHabit(name: $0, startDate: $1); showingAddHabit = false } }
+        .sheet(isPresented: $showingCalendar) {
+            CalendarView { date in
+                state.select(date)
+                showingCalendar = false
+            }
+        }
         .sheet(item: $noteHabit) { NoteEditor(habit: $0, date: state.selectedDate, body: state.note(for: $0.id)) { state.saveNote($0, for: $1.id); noteHabit = nil } }
+    }
+
+    private var dayTitle: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(state.selectedDate) { return "Today" }
+        if calendar.isDateInYesterday(state.selectedDate) { return "Yesterday" }
+        if calendar.isDateInTomorrow(state.selectedDate) { return "Tomorrow" }
+        return state.selectedDate.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+    private func selectDay(offset: Int) {
+        guard let date = Calendar.current.date(byAdding: .day, value: offset, to: state.selectedDate) else { return }
+        state.select(date)
+    }
+}
+
+private struct DayNavigationHeader: View {
+    let title: String
+    let previousDay: () -> Void
+    let nextDay: () -> Void
+    let showCalendar: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: previousDay) {
+                Image(systemName: "chevron.left")
+                    .font(.title3)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .accessibilityLabel("Previous day")
+
+            Button(action: showCalendar) {
+                Text(title)
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            .accessibilityLabel("Show calendar")
+
+            Button(action: nextDay) {
+                Image(systemName: "chevron.right")
+                    .font(.title3)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .accessibilityLabel("Next day")
+        }
     }
 }
 
@@ -161,8 +222,14 @@ private struct HabitDayRow: View {
 
 private struct CalendarView: View {
     @EnvironmentObject private var state: AppState
-    @State private var month = Calendar.current.startOfDay(for: .now)
+    @State private var month: Date
+    let selectDate: (Date) -> Void
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+
+    init(selectedDate: Date = Calendar.current.startOfDay(for: .now), selectDate: @escaping (Date) -> Void) {
+        _month = State(initialValue: Calendar.current.startOfDay(for: selectedDate))
+        self.selectDate = selectDate
+    }
 
     var body: some View {
         NavigationStack {
@@ -170,25 +237,10 @@ private struct CalendarView: View {
                 let summary = state.monthSummary(for: month)
 
                 ScrollView {
-                    VStack(spacing: 24) {
+                    VStack {
                         calendarGrid(summary: summary)
-                            // The calendar itself is centered in the usable tab
-                            // area; selected-day controls remain available below.
+                            // Center the calendar within the sheet's usable area.
                             .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .center)
-
-                        if !state.habits.isEmpty {
-                            LazyVStack(spacing: 12) {
-                                ForEach(state.habits) { habitDay in
-                                    HabitDayRow(
-                                        habitDay: habitDay,
-                                        select: { state.setStatus($0, for: habitDay.habit.id) },
-                                        note: {}
-                                    )
-                                    .padding(14)
-                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                                }
-                            }
-                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
@@ -196,6 +248,7 @@ private struct CalendarView: View {
                 .scrollIndicators(.hidden)
             }
             .navigationTitle("Calendar")
+            .navigationBarTitleDisplayMode(.inline)
             .onChange(of: state.selectedDate) { _, date in if !Calendar.current.isDate(date, equalTo: month, toGranularity: .month) { month = date } }
         }
     }
@@ -214,7 +267,7 @@ private struct CalendarView: View {
                 ForEach(Calendar.current.shortWeekdaySymbols, id: \.self) { Text($0).font(.caption2).foregroundStyle(.secondary) }
                 ForEach(0..<leadingWeekdayCount(), id: \.self) { _ in Color.clear.frame(height: 34) }
                 ForEach(daysInMonth(), id: \.self) { date in
-                    Button { state.select(date) } label: {
+                    Button { selectDate(date) } label: {
                         VStack(spacing: 1) {
                             Text("\(Calendar.current.component(.day, from: date))")
                             if let counts = summary[date], counts.done > 0 || counts.missed > 0 {
@@ -222,8 +275,8 @@ private struct CalendarView: View {
                             } else { Color.clear.frame(height: 4) }
                         }
                         .frame(maxWidth: .infinity, minHeight: 34)
-                        .background(Calendar.current.isDate(date, inSameDayAs: state.selectedDate) ? Color.accentColor : Color.clear)
-                        .foregroundStyle(Calendar.current.isDate(date, inSameDayAs: state.selectedDate) ? .white : .primary)
+                        .background(highlight(for: date))
+                        .foregroundStyle(foreground(for: date))
                         .clipShape(Circle())
                     }
                 }
@@ -241,6 +294,17 @@ private struct CalendarView: View {
     private func leadingWeekdayCount() -> Int { Calendar.current.component(.weekday, from: month) - 1 }
 
     private func shiftMonth(_ value: Int) { month = Calendar.current.date(byAdding: .month, value: value, to: month) ?? month }
+
+    private func highlight(for date: Date) -> Color {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return Color.accentColor.opacity(0.35) }
+        if calendar.isDate(date, inSameDayAs: state.selectedDate) { return Color.gray.opacity(0.3) }
+        return .clear
+    }
+
+    private func foreground(for date: Date) -> Color {
+        Calendar.current.isDateInToday(date) ? Color.accentColor : .primary
+    }
 }
 
 private struct StatisticsView: View {
