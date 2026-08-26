@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import XCTest
 @testable import iHabitTracker
 
@@ -64,5 +65,50 @@ final class HabitStoreTests: XCTestCase {
         FileManager.default.createFile(atPath: invalid.path, contents: Data("not sqlite".utf8))
         XCTAssertThrowsError(try HabitStore.validateImport(at: invalid))
         try? FileManager.default.removeItem(at: invalid)
+    }
+
+    func testHabitNoteSummariesAndHistoryIncludeZeroCountsInHabitOrder() throws {
+        let store = try HabitStore(databaseURL: databaseURL)
+        let calendar = Calendar(identifier: .gregorian)
+        let august1 = calendar.date(from: DateComponents(year: 2026, month: 8, day: 1))!
+        let august2 = calendar.date(byAdding: .day, value: 1, to: august1)!
+        let august3 = calendar.date(byAdding: .day, value: 2, to: august1)!
+
+        try store.createHabit(name: "Zebra", startDate: august2, today: august3)
+        try store.createHabit(name: "Alpha", startDate: august1, today: august3)
+        let alpha = try XCTUnwrap(store.habits(on: august3).first { $0.habit.name == "Alpha" })
+
+        XCTAssertFalse(alpha.hasNote)
+        try store.saveNote("Older", for: alpha.habit.id, on: august1)
+        try store.saveNote("Newer", for: alpha.habit.id, on: august2)
+
+        XCTAssertTrue(try XCTUnwrap(store.habits(on: august2).first { $0.habit.id == alpha.habit.id }).hasNote)
+        XCTAssertFalse(try XCTUnwrap(store.habits(on: august3).first { $0.habit.id == alpha.habit.id }).hasNote)
+
+        let summaries = try store.habitNoteSummaries()
+        XCTAssertEqual(summaries.map(\.habit.name), ["Alpha", "Zebra"])
+        XCTAssertEqual(summaries.map(\.noteCount), [2, 0])
+        XCTAssertEqual(try store.notes(for: alpha.habit.id).map(\.body), ["Newer", "Older"])
+    }
+
+    func testExistingArchivedNoteCanBeEditedOrDeletedButNotCreated() throws {
+        let store = try HabitStore(databaseURL: databaseURL)
+        let day = Calendar(identifier: .gregorian).startOfDay(for: .now)
+        try store.createHabit(name: "Read", startDate: day)
+        let habit = try XCTUnwrap(store.habits(on: day).first)
+        try store.saveNote("Original", for: habit.id, on: day)
+
+        let database = try DatabaseQueue(path: databaseURL.path)
+        try database.write { database in
+            try database.execute(sql: "UPDATE habits SET archived_at = ? WHERE id = ?", arguments: [HabitStore.dayString(day), habit.id])
+        }
+
+        XCTAssertTrue(try XCTUnwrap(store.habitNoteSummaries().first).isArchived)
+        try store.saveNote("Edited", for: habit.id, on: day)
+        XCTAssertEqual(try store.note(for: habit.id, on: day), "Edited")
+
+        try store.saveNote("   ", for: habit.id, on: day)
+        XCTAssertEqual(try store.note(for: habit.id, on: day), "")
+        XCTAssertThrowsError(try store.saveNote("New", for: habit.id, on: day))
     }
 }

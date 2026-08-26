@@ -7,7 +7,7 @@ final class AppState: ObservableObject {
     @Published private(set) var habits: [HabitDay] = []
     @Published private(set) var statistics: [HabitStatistics] = []
     @Published private(set) var notifications: [PendingNotification] = []
-    @Published private(set) var notes: [HabitNote] = []
+    @Published private(set) var habitNoteSummaries: [HabitNoteSummary] = []
     @Published var errorMessage: String?
 
     private var store: HabitStore?
@@ -27,7 +27,7 @@ final class AppState: ObservableObject {
             habits = try store.habits(on: selectedDate)
             statistics = try store.statistics()
             notifications = try store.pendingNotifications()
-            notes = try store.allNotes()
+            habitNoteSummaries = try store.habitNoteSummaries()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -47,13 +47,26 @@ final class AppState: ObservableObject {
     }
 
     func note(for habitID: Int64) -> String {
-        do { return try store?.note(for: habitID, on: selectedDate) ?? "" }
+        note(for: habitID, on: selectedDate)
+    }
+
+    func note(for habitID: Int64, on day: Date) -> String {
+        do { return try store?.note(for: habitID, on: day) ?? "" }
         catch { errorMessage = error.localizedDescription; return "" }
     }
 
     func saveNote(_ body: String, for habitID: Int64) {
-        do { try store?.saveNote(body, for: habitID, on: selectedDate); reload() }
+        saveNote(body, for: habitID, on: selectedDate)
+    }
+
+    func saveNote(_ body: String, for habitID: Int64, on day: Date) {
+        do { try store?.saveNote(body, for: habitID, on: day); reload() }
         catch { errorMessage = error.localizedDescription }
+    }
+
+    func notes(for habitID: Int64) -> [HabitNote] {
+        do { return try store?.notes(for: habitID) ?? [] }
+        catch { errorMessage = error.localizedDescription; return [] }
     }
 
     func importDatabase(from url: URL) {

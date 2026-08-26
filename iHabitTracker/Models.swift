@@ -20,8 +20,17 @@ struct HabitDay: Identifiable, Equatable {
     let habit: Habit
     let status: HabitStatus
     let currentStreak: Int
+    let hasNote: Bool
 
     var id: Int64 { habit.id }
+}
+
+struct HabitNoteSummary: Identifiable, Equatable {
+    let habit: Habit
+    let noteCount: Int
+
+    var id: Int64 { habit.id }
+    var isArchived: Bool { habit.archivedAt != nil }
 }
 
 struct HabitNote: Identifiable, Equatable {

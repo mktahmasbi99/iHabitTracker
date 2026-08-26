@@ -132,12 +132,14 @@ final class HabitStore {
 
     func habits(on day: Date) throws -> [HabitDay] {
         let dayString = Self.dayString(day)
-        let habits = try database.read { database -> [(Habit, HabitStatus)] in
+        let habits = try database.read { database -> [(Habit, HabitStatus, Bool)] in
             let rows = try Row.fetchAll(database, sql: """
                 SELECT habits.id, habits.name, habits.start_date, habits.archived_at,
-                       COALESCE(habit_logs.status, 'pending') AS status
+                       COALESCE(habit_logs.status, 'pending') AS status,
+                       habit_notes.habit_id IS NOT NULL AS has_note
                 FROM habits
                 LEFT JOIN habit_logs ON habit_logs.habit_id = habits.id AND habit_logs.log_date = ?
+                LEFT JOIN habit_notes ON habit_notes.habit_id = habits.id AND habit_notes.note_date = ?
                 WHERE habits.start_date <= ? AND habits.archived_at IS NULL
                   AND NOT EXISTS (
                     SELECT 1 FROM habit_archive_periods
@@ -146,13 +148,14 @@ final class HabitStore {
                       AND (habit_archive_periods.resurrected_at IS NULL OR habit_archive_periods.resurrected_at > ?)
                   )
                 ORDER BY habits.start_date, habits.name
-                """, arguments: [dayString, dayString, dayString, dayString])
+                """, arguments: [dayString, dayString, dayString, dayString, dayString])
             return rows.map { row in
                 let habit = Habit(id: row["id"], name: row["name"], startDate: Self.date(from: row["start_date"]), archivedAt: nil)
-                return (habit, HabitStatus(rawValue: row["status"]) ?? .pending)
+                let hasNote: Bool = row["has_note"]
+                return (habit, HabitStatus(rawValue: row["status"]) ?? .pending, hasNote)
             }
         }
-        return try habits.map { HabitDay(habit: $0.0, status: $0.1, currentStreak: try currentStreak(for: $0.0.id, through: day)) }
+        return try habits.map { HabitDay(habit: $0.0, status: $0.1, currentStreak: try currentStreak(for: $0.0.id, through: day), hasNote: $0.2) }
     }
 
     func setStatus(_ status: HabitStatus, for habitID: Int64, on day: Date) throws {
@@ -177,16 +180,57 @@ final class HabitStore {
     }
 
     func saveNote(_ body: String, for habitID: Int64, on day: Date) throws {
-        guard try habitIsActive(habitID, on: day) else { throw HabitTrackerError.inactiveHabit }
+        let noteDate = Self.dayString(day)
+        let existingNote = try database.read { database in
+            try Bool.fetchOne(database, sql: "SELECT EXISTS(SELECT 1 FROM habit_notes WHERE habit_id = ? AND note_date = ?)", arguments: [habitID, noteDate]) ?? false
+        }
+        let isActive = try habitIsActive(habitID, on: day)
+        guard existingNote || isActive else { throw HabitTrackerError.inactiveHabit }
         try database.write { database in
             if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                try database.execute(sql: "DELETE FROM habit_notes WHERE habit_id = ? AND note_date = ?", arguments: [habitID, Self.dayString(day)])
+                try database.execute(sql: "DELETE FROM habit_notes WHERE habit_id = ? AND note_date = ?", arguments: [habitID, noteDate])
             } else {
                 try database.execute(sql: """
                     INSERT INTO habit_notes (habit_id, note_date, body, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(habit_id, note_date) DO UPDATE SET body = excluded.body, updated_at = CURRENT_TIMESTAMP
-                    """, arguments: [habitID, Self.dayString(day), body])
+                """, arguments: [habitID, noteDate, body])
             }
+        }
+    }
+
+    func habitNoteSummaries() throws -> [HabitNoteSummary] {
+        try database.read { database in
+            try Row.fetchAll(database, sql: """
+                SELECT habits.id, habits.name, habits.start_date, habits.archived_at,
+                       COUNT(habit_notes.habit_id) AS note_count
+                FROM habits
+                LEFT JOIN habit_notes ON habit_notes.habit_id = habits.id
+                GROUP BY habits.id, habits.name, habits.start_date, habits.archived_at
+                ORDER BY habits.start_date, habits.name, habits.id
+                """).map { row in
+                    let archivedAt: String? = row["archived_at"]
+                    let habit = Habit(
+                        id: row["id"],
+                        name: row["name"],
+                        startDate: Self.date(from: row["start_date"]),
+                        archivedAt: archivedAt.map(Self.date(from:))
+                    )
+                    let noteCount: Int = row["note_count"]
+                    return HabitNoteSummary(habit: habit, noteCount: noteCount)
+                }
+        }
+    }
+
+    func notes(for habitID: Int64) throws -> [HabitNote] {
+        try database.read { database in
+            try Row.fetchAll(database, sql: """
+                SELECT habit_notes.habit_id, habits.name, habit_notes.note_date, habit_notes.body
+                FROM habit_notes JOIN habits ON habits.id = habit_notes.habit_id
+                WHERE habit_notes.habit_id = ?
+                ORDER BY habit_notes.note_date DESC
+                """, arguments: [habitID]).map {
+                    HabitNote(habitID: $0["habit_id"], habitName: $0["name"], date: Self.date(from: $0["note_date"]), body: $0["body"])
+                }
         }
     }
 

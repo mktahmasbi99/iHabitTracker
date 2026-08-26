@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 struct RootView: View {
     @State private var selectedTab: AppTab = .today
@@ -29,20 +30,21 @@ struct RootView: View {
         switch selectedTab {
         case .today: TodayView()
         case .statistics: StatisticsView()
+        case .notes: NotesIndexView()
         case .more: MoreView()
         }
     }
 }
 
 private enum AppTab: CaseIterable, Identifiable {
-    case today, statistics, more
+    case today, statistics, notes, more
 
     var id: Self { self }
     var title: String {
-        switch self { case .today: "Today"; case .statistics: "Stats"; case .more: "More" }
+        switch self { case .today: "Today"; case .statistics: "Stats"; case .notes: "Notes"; case .more: "More" }
     }
     var symbol: String {
-        switch self { case .today: "checkmark.circle.fill"; case .statistics: "chart.line.uptrend.xyaxis"; case .more: "ellipsis.circle" }
+        switch self { case .today: "checkmark.circle.fill"; case .statistics: "chart.line.uptrend.xyaxis"; case .notes: "note.text"; case .more: "ellipsis.circle" }
     }
 }
 
@@ -135,7 +137,10 @@ private struct TodayView: View {
                 showingCalendar = false
             }
         }
-        .sheet(item: $noteHabit) { NoteEditor(habit: $0, date: state.selectedDate, body: state.note(for: $0.id)) { state.saveNote($0, for: $1.id); noteHabit = nil } }
+        .sheet(item: $noteHabit) { NoteEditor(habit: $0, date: state.selectedDate, body: state.note(for: $0.id)) { body, habit, date in
+            state.saveNote(body, for: habit.id, on: date)
+            noteHabit = nil
+        } }
     }
 
     private var dayTitle: String {
@@ -209,7 +214,12 @@ private struct HabitDayRow: View {
                         .accessibilityLabel("Set \(habitDay.habit.name) to \(status.title)")
                 }
                 Spacer()
-                Button(action: note) { Image(systemName: "note.text") }.buttonStyle(.borderless).accessibilityLabel("Edit note for \(habitDay.habit.name)")
+                Button(action: note) {
+                    Image(systemName: "note.text")
+                        .foregroundStyle(habitDay.hasNote ? Color.accentColor : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("\(habitDay.hasNote ? "Edit" : "Add") note for \(habitDay.habit.name)")
             }
         }
         .padding(.vertical, 3)
@@ -340,7 +350,7 @@ private struct MoreView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Review") { NavigationLink("Unresolved dates") { NotificationsView() }; NavigationLink("Notes") { NotesView() } }
+                Section("Review") { NavigationLink("Unresolved dates") { NotificationsView() } }
                 Section("Data") { Button("Import terminal database") { importing = true } }
                 Section("Coming next") { Label("Habit management and archive", systemImage: "archivebox").foregroundStyle(.secondary); Label("Challenges", systemImage: "flag").foregroundStyle(.secondary); Label("Backup and restore", systemImage: "externaldrive").foregroundStyle(.secondary) }
             }.navigationTitle("More")
@@ -354,7 +364,135 @@ private struct MoreView: View {
 }
 
 private struct NotificationsView: View { @EnvironmentObject private var state: AppState; var body: some View { List(state.notifications) { notification in Button { state.select(notification.day) } label: { Text("\(notification.day.formatted(date: .abbreviated, time: .omitted)): \(notification.pendingCount) pending") } }.navigationTitle("Unresolved dates") } }
-private struct NotesView: View { @EnvironmentObject private var state: AppState; var body: some View { List(state.notes) { note in VStack(alignment: .leading) { Text(note.habitName).font(.headline); Text(note.date.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(.secondary); Text(note.body).lineLimit(2) } }.navigationTitle("Notes") } }
+
+private struct NotesIndexView: View {
+    @EnvironmentObject private var state: AppState
+    @State private var showingArchived = false
+
+    private var activeHabits: [HabitNoteSummary] { state.habitNoteSummaries.filter { !$0.isArchived } }
+    private var archivedHabits: [HabitNoteSummary] { state.habitNoteSummaries.filter(\.isArchived) }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(activeHabits) { summary in
+                    NavigationLink { HabitNotesHistoryView(summary: summary) } label: { HabitNotesIndexRow(summary: summary) }
+                }
+
+                if !archivedHabits.isEmpty {
+                    Button(showingArchived ? "Hide Archived Habits" : "View Archived Habits") {
+                        withAnimation { showingArchived.toggle() }
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                    if showingArchived {
+                        ForEach(archivedHabits) { summary in
+                            NavigationLink { HabitNotesHistoryView(summary: summary) } label: {
+                                HabitNotesIndexRow(summary: summary, isArchived: true)
+                            }
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Notes")
+        }
+    }
+}
+
+private struct HabitNotesIndexRow: View {
+    let summary: HabitNoteSummary
+    var isArchived = false
+
+    var body: some View {
+        HStack {
+            Text(summary.habit.name)
+                .font(.headline)
+            Spacer()
+            Text("\(summary.noteCount) \(summary.noteCount == 1 ? "note" : "notes")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .opacity(isArchived ? 0.55 : 1)
+    }
+}
+
+private struct HabitNotesHistoryView: View {
+    @EnvironmentObject private var state: AppState
+    let summary: HabitNoteSummary
+    @State private var notes: [HabitNote] = []
+    @State private var editingNote: HabitNote?
+
+    var body: some View {
+        List {
+            if notes.isEmpty {
+                ContentUnavailableView("No notes yet", systemImage: "note.text", description: Text("Add notes from Today, where you can choose a date."))
+                    .listRowBackground(Color.clear)
+            } else {
+                ForEach(notes) { note in
+                    Button { editingNote = note } label: {
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text(note.date.formatted(.dateTime.day().month(.abbreviated).year()))
+                                .font(.headline)
+                            NotePreview(text: note.body)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Edit note for \(summary.habit.name) on \(note.date.formatted(date: .abbreviated, time: .omitted))")
+                }
+            }
+        }
+        .navigationTitle(summary.habit.name)
+        .onAppear(perform: reloadNotes)
+        .sheet(item: $editingNote) { note in
+            NoteEditor(habit: summary.habit, date: note.date, body: note.body) { body, habit, date in
+                state.saveNote(body, for: habit.id, on: date)
+                reloadNotes()
+                editingNote = nil
+            }
+        }
+    }
+
+    private func reloadNotes() { notes = state.notes(for: summary.habit.id) }
+}
+
+private struct NotePreview: View {
+    let text: String
+    @State private var availableWidth: CGFloat = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(text)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear { availableWidth = proxy.size.width }
+                            .onChange(of: proxy.size.width) { _, width in availableWidth = width }
+                    }
+                }
+            if hasMoreText {
+                Text("More")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var hasMoreText: Bool {
+        guard availableWidth > 0 else { return false }
+        let font = UIFont.preferredFont(forTextStyle: .body)
+        let rect = (text as NSString).boundingRect(
+            with: CGSize(width: availableWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil
+        )
+        return rect.height > (font.lineHeight * 3) + 0.5
+    }
+}
 
 private struct AddHabitSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -367,7 +505,7 @@ private struct AddHabitSheet: View {
 
 private struct NoteEditor: View {
     @Environment(\.dismiss) private var dismiss
-    let habit: Habit; let date: Date; @State private var noteText: String; let save: (String, Habit) -> Void
-    init(habit: Habit, date: Date, body: String, save: @escaping (String, Habit) -> Void) { self.habit = habit; self.date = date; _noteText = State(initialValue: body); self.save = save }
-    var body: some View { NavigationStack { TextEditor(text: $noteText).padding().navigationTitle(habit.name).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Save") { save(noteText, habit) } } } } }
+    let habit: Habit; let date: Date; @State private var noteText: String; let save: (String, Habit, Date) -> Void
+    init(habit: Habit, date: Date, body: String, save: @escaping (String, Habit, Date) -> Void) { self.habit = habit; self.date = date; _noteText = State(initialValue: body); self.save = save }
+    var body: some View { NavigationStack { TextEditor(text: $noteText).padding().navigationTitle(habit.name).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Save") { save(noteText, habit, date) } } } } }
 }
