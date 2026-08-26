@@ -14,6 +14,7 @@
 		A10000000000000000000015 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005 /* RootView.swift */; };
 		A10000000000000000000016 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000031 /* GRDB */; };
 		A10000000000000000000017 /* HabitStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* HabitStoreTests.swift */; };
+		A10000000000000000000018 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000009 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -35,6 +36,7 @@
 		A10000000000000000000006 /* HabitStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitStoreTests.swift; sourceTree = "<group>"; };
 		A10000000000000000000007 /* iHabitTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iHabitTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000008 /* iHabitTrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = iHabitTrackerTests.xctest; path = .xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,6 +70,7 @@
 		A10000000000000000000052 /* iHabitTracker */ = {
 			isa = PBXGroup;
 			children = (
+				A10000000000000000000009 /* Assets.xcassets */,
 				A10000000000000000000001 /* iHabitTrackerApp.swift */,
 				A10000000000000000000002 /* Models.swift */,
 				A10000000000000000000003 /* HabitStore.swift */,
@@ -180,6 +183,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000018 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
