@@ -130,7 +130,7 @@ private struct TodayView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .sheet(isPresented: $showingAddHabit) { AddHabitSheet(defaultDate: state.selectedDate) { state.createHabit(name: $0, startDate: $1); showingAddHabit = false } }
         .sheet(isPresented: $showingCalendar) {
-            CalendarView { date in
+            CalendarView(selectedDate: state.selectedDate) { date in
                 state.select(date)
                 showingCalendar = false
             }
@@ -225,9 +225,12 @@ private struct CalendarView: View {
     @State private var month: Date
     let selectDate: (Date) -> Void
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+    private var calendar: Calendar { Calendar.current }
 
-    init(selectedDate: Date = Calendar.current.startOfDay(for: .now), selectDate: @escaping (Date) -> Void) {
-        _month = State(initialValue: Calendar.current.startOfDay(for: selectedDate))
+    init(selectedDate: Date, selectDate: @escaping (Date) -> Void) {
+        let calendar = Calendar.current
+        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: selectedDate)) ?? calendar.startOfDay(for: selectedDate)
+        _month = State(initialValue: monthStart)
         self.selectDate = selectDate
     }
 
@@ -249,7 +252,11 @@ private struct CalendarView: View {
             }
             .navigationTitle("Calendar")
             .navigationBarTitleDisplayMode(.inline)
-            .onChange(of: state.selectedDate) { _, date in if !Calendar.current.isDate(date, equalTo: month, toGranularity: .month) { month = date } }
+            .onChange(of: state.selectedDate) { _, date in
+                if !calendar.isDate(date, equalTo: month, toGranularity: .month) {
+                    month = startOfMonth(for: date)
+                }
+            }
         }
     }
 
@@ -264,12 +271,12 @@ private struct CalendarView: View {
             }
 
             LazyVGrid(columns: columns, spacing: 9) {
-                ForEach(Calendar.current.shortWeekdaySymbols, id: \.self) { Text($0).font(.caption2).foregroundStyle(.secondary) }
+                ForEach(calendar.shortWeekdaySymbols, id: \.self) { Text($0).font(.caption2).foregroundStyle(.secondary) }
                 ForEach(0..<leadingWeekdayCount(), id: \.self) { _ in Color.clear.frame(height: 34) }
                 ForEach(daysInMonth(), id: \.self) { date in
                     Button { selectDate(date) } label: {
                         VStack(spacing: 1) {
-                            Text("\(Calendar.current.component(.day, from: date))")
+                            Text("\(calendar.component(.day, from: date))")
                             if let counts = summary[date], counts.done > 0 || counts.missed > 0 {
                                 HStack(spacing: 2) { if counts.done > 0 { Circle().fill(.green).frame(width: 4, height: 4) }; if counts.missed > 0 { Circle().fill(.red).frame(width: 4, height: 4) } }
                             } else { Color.clear.frame(height: 4) }
@@ -285,25 +292,29 @@ private struct CalendarView: View {
     }
 
     private func daysInMonth() -> [Date] {
-        let calendar = Calendar.current
         guard let range = calendar.range(of: .day, in: .month, for: month) else { return [] }
-        let dates = range.compactMap { calendar.date(bySetting: .day, value: $0, of: month) }
-        return dates
+        return range.compactMap { calendar.date(byAdding: .day, value: $0 - 1, to: month) }
     }
 
-    private func leadingWeekdayCount() -> Int { Calendar.current.component(.weekday, from: month) - 1 }
+    private func leadingWeekdayCount() -> Int { calendar.component(.weekday, from: month) - 1 }
 
-    private func shiftMonth(_ value: Int) { month = Calendar.current.date(byAdding: .month, value: value, to: month) ?? month }
+    private func shiftMonth(_ value: Int) {
+        guard let shifted = calendar.date(byAdding: .month, value: value, to: month) else { return }
+        month = startOfMonth(for: shifted)
+    }
+
+    private func startOfMonth(for date: Date) -> Date {
+        calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? calendar.startOfDay(for: date)
+    }
 
     private func highlight(for date: Date) -> Color {
-        let calendar = Calendar.current
         if calendar.isDateInToday(date) { return Color.accentColor.opacity(0.35) }
         if calendar.isDate(date, inSameDayAs: state.selectedDate) { return Color.gray.opacity(0.3) }
         return .clear
     }
 
     private func foreground(for date: Date) -> Color {
-        Calendar.current.isDateInToday(date) ? Color.accentColor : .primary
+        calendar.isDateInToday(date) ? Color.accentColor : .primary
     }
 }
 

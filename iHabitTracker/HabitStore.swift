@@ -213,10 +213,12 @@ final class HabitStore {
     }
 
     func monthSummary(for month: Date) throws -> [Date: (done: Int, missed: Int)] {
-        let calendar = Calendar(identifier: .gregorian)
-        guard let range = calendar.range(of: .day, in: .month, for: month) else { return [:] }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: month)),
+              let range = calendar.range(of: .day, in: .month, for: monthStart) else { return [:] }
         return try Dictionary(uniqueKeysWithValues: range.compactMap { number in
-            guard let date = calendar.date(bySetting: .day, value: number, of: month) else { return nil }
+            guard let date = calendar.date(byAdding: .day, value: number - 1, to: monthStart) else { return nil }
             let habits = try habits(on: date)
             return (date, (habits.filter { $0.status == .done }.count, habits.filter { $0.status == .missed }.count))
         })

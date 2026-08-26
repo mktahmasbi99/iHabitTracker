@@ -40,6 +40,25 @@ final class HabitStoreTests: XCTestCase {
         XCTAssertEqual(try store.statistics(through: today).first?.currentStreak, 1)
     }
 
+    func testMonthSummaryUsesDatesWithinTheRequestedMonth() throws {
+        let store = try HabitStore(databaseURL: databaseURL)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let august15 = calendar.date(from: DateComponents(year: 2026, month: 8, day: 15))!
+        let august26 = calendar.date(from: DateComponents(year: 2026, month: 8, day: 26))!
+        let september15 = calendar.date(from: DateComponents(year: 2026, month: 9, day: 15))!
+
+        try store.createHabit(name: "Read", startDate: august15, today: august26)
+        let habit = try XCTUnwrap(store.habits(on: august15).first)
+        try store.setStatus(.missed, for: habit.id, on: august15)
+
+        let summary = try store.monthSummary(for: august26)
+        XCTAssertEqual(summary.count, 31)
+        XCTAssertEqual(summary[august15]?.done, 0)
+        XCTAssertEqual(summary[august15]?.missed, 1)
+        XCTAssertNil(summary[september15])
+    }
+
     func testInvalidImportIsRejected() throws {
         let invalid = FileManager.default.temporaryDirectory.appendingPathComponent("invalid-\(UUID().uuidString).sqlite3")
         FileManager.default.createFile(atPath: invalid.path, contents: Data("not sqlite".utf8))
