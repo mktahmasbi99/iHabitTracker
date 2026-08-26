@@ -280,7 +280,7 @@ final class HabitStore {
             if pending > 0 { result.append(PendingNotification(day: date, pendingCount: pending)) }
             date = calendar.date(byAdding: .day, value: 1, to: date)!
         }
-        return result
+        return Array(result.reversed())
     }
 
     private func habitIsActive(_ id: Int64, on day: Date) throws -> Bool {

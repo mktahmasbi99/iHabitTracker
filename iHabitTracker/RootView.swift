@@ -4,6 +4,7 @@ import UIKit
 
 struct RootView: View {
     @State private var selectedTab: AppTab = .today
+    @EnvironmentObject private var state: AppState
 
     var body: some View {
         ZStack {
@@ -14,7 +15,7 @@ struct RootView: View {
                 activeTab
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-                AppTabBar(selection: $selectedTab)
+                AppTabBar(selection: $selectedTab, notificationCount: state.notifications.count)
                     .safeAreaPadding(.bottom)
                     .background(.bar)
             }
@@ -31,30 +32,36 @@ struct RootView: View {
         case .today: TodayView()
         case .statistics: StatisticsView()
         case .notes: NotesIndexView()
+        case .notifications:
+            NotificationsView { date in
+                state.select(date)
+                selectedTab = .today
+            }
         case .more: MoreView()
         }
     }
 }
 
 private enum AppTab: CaseIterable, Identifiable {
-    case today, statistics, notes, more
+    case today, statistics, notes, notifications, more
 
     var id: Self { self }
     var title: String {
-        switch self { case .today: "Today"; case .statistics: "Stats"; case .notes: "Notes"; case .more: "More" }
+        switch self { case .today: "Today"; case .statistics: "Stats"; case .notes: "Notes"; case .notifications: "Notifications"; case .more: "More" }
     }
     var symbol: String {
-        switch self { case .today: "checkmark.circle.fill"; case .statistics: "chart.line.uptrend.xyaxis"; case .notes: "note.text"; case .more: "ellipsis.circle" }
+        switch self { case .today: "checkmark.circle.fill"; case .statistics: "chart.line.uptrend.xyaxis"; case .notes: "note.text"; case .notifications: "bell"; case .more: "ellipsis.circle" }
     }
 }
 
 private struct AppTabBar: View {
     @Binding var selection: AppTab
+    let notificationCount: Int
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(AppTab.allCases) { tab in
-                AppTabBarItem(tab: tab, isSelected: selection == tab) { selection = tab }
+                AppTabBarItem(tab: tab, isSelected: selection == tab, notificationCount: notificationCount) { selection = tab }
             }
         }
         .padding(.top, 7)
@@ -64,23 +71,46 @@ private struct AppTabBar: View {
 private struct AppTabBarItem: View {
     let tab: AppTab
     let isSelected: Bool
+    let notificationCount: Int
     let action: () -> Void
+
+    private var showsNotificationBadge: Bool {
+        tab == .notifications && notificationCount > 0
+    }
+
+    private var foregroundColor: Color {
+        isSelected || showsNotificationBadge ? .accentColor : .secondary
+    }
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 3) {
-                Image(systemName: tab.symbol)
-                    .font(.system(size: 27, weight: .medium))
-                Text(tab.title)
-                    .font(.caption)
-            }
-            .fontWeight(isSelected ? .semibold : .regular)
-            .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+            Image(systemName: tab.symbol)
+                .font(.system(size: 27.2, weight: .medium))
+                .overlay(alignment: .topTrailing) {
+                    if showsNotificationBadge {
+                        Text("\(notificationCount)")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor, in: Capsule())
+                            .offset(x: 11, y: -9)
+                    }
+                }
+            .foregroundStyle(foregroundColor)
             .frame(maxWidth: .infinity, minHeight: 62)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        guard tab == .notifications else { return tab.title }
+        return notificationCount == 0
+            ? "Notifications, no unresolved dates"
+            : "Notifications, \(notificationCount) unresolved \(notificationCount == 1 ? "date" : "dates")"
     }
 }
 
@@ -350,7 +380,6 @@ private struct MoreView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Review") { NavigationLink("Unresolved dates") { NotificationsView() } }
                 Section("Data") { Button("Import terminal database") { importing = true } }
                 Section("Coming next") { Label("Habit management and archive", systemImage: "archivebox").foregroundStyle(.secondary); Label("Challenges", systemImage: "flag").foregroundStyle(.secondary); Label("Backup and restore", systemImage: "externaldrive").foregroundStyle(.secondary) }
             }.navigationTitle("More")
@@ -363,7 +392,38 @@ private struct MoreView: View {
     }
 }
 
-private struct NotificationsView: View { @EnvironmentObject private var state: AppState; var body: some View { List(state.notifications) { notification in Button { state.select(notification.day) } label: { Text("\(notification.day.formatted(date: .abbreviated, time: .omitted)): \(notification.pendingCount) pending") } }.navigationTitle("Unresolved dates") } }
+private struct NotificationsView: View {
+    @EnvironmentObject private var state: AppState
+    let selectDate: (Date) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if state.notifications.isEmpty {
+                    ContentUnavailableView(
+                        "No unresolved dates",
+                        systemImage: "bell.slash",
+                        description: Text("All past habits have been marked Done or Missed.")
+                    )
+                } else {
+                    List(state.notifications) { notification in
+                        Button { selectDate(notification.day) } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(notification.day.formatted(date: .abbreviated, time: .omitted))
+                                    .foregroundStyle(.primary)
+                                Text("\(notification.pendingCount) \(notification.pendingCount == 1 ? "habit" : "habits") unresolved")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityLabel("\(notification.day.formatted(date: .abbreviated, time: .omitted)), \(notification.pendingCount) unresolved \(notification.pendingCount == 1 ? "habit" : "habits")")
+                    }
+                }
+            }
+            .navigationTitle("Notifications")
+        }
+    }
+}
 
 private struct NotesIndexView: View {
     @EnvironmentObject private var state: AppState

@@ -41,6 +41,35 @@ final class HabitStoreTests: XCTestCase {
         XCTAssertEqual(try store.statistics(through: today).first?.currentStreak, 1)
     }
 
+    func testPendingNotificationsIncludeOnlyPastDatesInReverseChronologicalOrder() throws {
+        let store = try HabitStore(databaseURL: databaseURL)
+        let calendar = Calendar(identifier: .gregorian)
+        let today = calendar.date(from: DateComponents(year: 2026, month: 8, day: 26))!
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let twoDaysAgo = calendar.date(byAdding: .day, value: -2, to: today)!
+
+        try store.createHabit(name: "Read", startDate: twoDaysAgo, today: today)
+        try store.createHabit(name: "Walk", startDate: yesterday, today: today)
+
+        let read = try XCTUnwrap(store.habits(on: twoDaysAgo).first { $0.habit.name == "Read" })
+        let walk = try XCTUnwrap(store.habits(on: yesterday).first { $0.habit.name == "Walk" })
+        try store.setStatus(.pending, for: read.habit.id, on: twoDaysAgo)
+        try store.setStatus(.pending, for: read.habit.id, on: yesterday)
+        try store.setStatus(.pending, for: walk.habit.id, on: yesterday)
+
+        let notifications = try store.pendingNotifications(today: today)
+        XCTAssertEqual(notifications.map(\.day), [yesterday, twoDaysAgo])
+        XCTAssertEqual(notifications.map(\.pendingCount), [2, 1])
+
+        let yesterdayHabits = try store.habits(on: yesterday)
+        try store.setStatus(.done, for: yesterdayHabits[0].habit.id, on: yesterday)
+        try store.setStatus(.missed, for: yesterdayHabits[1].habit.id, on: yesterday)
+
+        let updatedNotifications = try store.pendingNotifications(today: today)
+        XCTAssertEqual(updatedNotifications.map(\.day), [twoDaysAgo])
+        XCTAssertEqual(updatedNotifications.map(\.pendingCount), [1])
+    }
+
     func testMonthSummaryUsesDatesWithinTheRequestedMonth() throws {
         let store = try HabitStore(databaseURL: databaseURL)
         var calendar = Calendar(identifier: .gregorian)
