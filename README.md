@@ -1,4 +1,5 @@
 # iHabitTracker
+NOTE: THIS PROJECT IS VIBE CODED AND MAINLY EXISTS TO SCRATCH A PERSONAL ITCH.
 
 iHabitTracker is an iOS reimagining of my earlier terminal-based habit tracker, redesigned for a mobile-first experience.
 
